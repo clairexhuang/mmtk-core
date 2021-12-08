@@ -235,8 +235,7 @@ impl Block {
             match self.get_state() {
                 BlockState::Unallocated => false,
                 BlockState::Unmarked => {
-                    // Release the block if it is allocated but not marked by the current GC.
-                    space.release_block(*self);
+                    // Notify the caller to release the block if it is allocated but not marked by the current GC.
                     true
                 }
                 BlockState::Marked => {
@@ -265,8 +264,7 @@ impl Block {
             }
 
             if marked_lines == 0 {
-                // Release the block if non of its lines are marked.
-                space.release_block(*self);
+                // Notify the caller to release the block if non of its lines are marked.
                 true
             } else {
                 // There are some marked lines. Keep the block live.

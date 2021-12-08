@@ -20,7 +20,7 @@ use crate::{
     plan::TransitiveClosure,
     scheduler::{gc_work::ProcessEdgesWork, GCWork, GCWorkScheduler, GCWorker, WorkBucketStage},
     util::{
-        heap::FreeListPageResource,
+        heap::BlockPageResource,
         opaque_pointer::{VMThread, VMWorkerThread},
     },
     AllocationSemantics, CopyContext, MMTK,
@@ -34,7 +34,7 @@ use std::{
 
 pub struct ImmixSpace<VM: VMBinding> {
     common: CommonSpace<VM>,
-    pr: FreeListPageResource<VM>,
+    pub(super) pr: BlockPageResource<VM>,
     /// Allocation status for all chunks in immix space
     pub chunk_map: ChunkMap,
     /// Current line mark state
@@ -151,9 +151,14 @@ impl<VM: VMBinding> ImmixSpace<VM> {
         );
         ImmixSpace {
             pr: if common.vmrequest.is_discontiguous() {
-                FreeListPageResource::new_discontiguous(0, vm_map)
+                unimplemented!()
             } else {
-                FreeListPageResource::new_contiguous(common.start, common.extent, 0, vm_map)
+                BlockPageResource::new_contiguous(
+                    Block::LOG_PAGES,
+                    common.start,
+                    common.extent,
+                    vm_map,
+                )
             },
             common,
             chunk_map: ChunkMap::new(),
@@ -269,12 +274,6 @@ impl<VM: VMBinding> ImmixSpace<VM> {
             self.defrag.release(self);
         }
         did_defrag
-    }
-
-    /// Release a block.
-    pub fn release_block(&self, block: Block) {
-        block.deinit();
-        self.pr.release_pages(block.start());
     }
 
     /// Allocate a clean block.

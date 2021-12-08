@@ -8,6 +8,7 @@ use crate::{
     vm::*,
     MMTK,
 };
+use crossbeam_queue::ArrayQueue;
 use spin::Mutex;
 use std::{iter::Step, ops::Range, sync::atomic::Ordering};
 
@@ -61,6 +62,7 @@ impl Chunk {
         } else {
             Some(space.line_mark_state.load(Ordering::Acquire))
         };
+        let dead_blocks = ArrayQueue::new(Chunk::BLOCKS);
         // number of allocated blocks.
         let mut allocated_blocks = 0;
         // Iterate over all allocated blocks in this chunk.
@@ -71,7 +73,13 @@ impl Chunk {
             if !block.sweep(space, mark_histogram, line_mark_state) {
                 // Block is live. Increment the allocated block count.
                 allocated_blocks += 1;
+            } else {
+                block.deinit();
+                dead_blocks.push(block.start()).unwrap();
             }
+        }
+        if !dead_blocks.is_empty() {
+            space.pr.release_bulk(dead_blocks)
         }
         // Set this chunk as free if there is not live blocks.
         if allocated_blocks == 0 {

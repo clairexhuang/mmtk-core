@@ -4,8 +4,9 @@ use super::*;
 use crate::mmtk::MMTK;
 use crate::util::opaque_pointer::*;
 use crate::vm::{Collection, VMBinding};
+use crossbeam_deque::{Stealer, Worker};
 use std::ffi::c_void;
-use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
 use std::sync::mpsc::Sender;
 use std::sync::{Arc, Weak};
 
@@ -51,8 +52,6 @@ impl GCWorkerLocalPtr {
     }
 }
 
-const LOCALLY_CACHED_WORKS: usize = 1;
-
 pub struct GCWorker<VM: VMBinding> {
     pub tls: VMWorkerThread,
     pub ordinal: usize,
@@ -64,7 +63,7 @@ pub struct GCWorker<VM: VMBinding> {
     pub stat: WorkerLocalStat<VM>,
     mmtk: Option<&'static MMTK<VM>>,
     is_coordinator: bool,
-    local_work_buffer: Vec<(WorkBucketStage, Box<dyn GCWork<VM>>)>,
+    pub(super) local_work_buffer: Worker<Box<dyn GCWork<VM>>>,
 }
 
 unsafe impl<VM: VMBinding> Sync for GCWorker<VM> {}
@@ -83,35 +82,27 @@ impl<VM: VMBinding> GCWorker<VM> {
             ordinal,
             parked: AtomicBool::new(true),
             local: GCWorkerLocalPtr::UNINITIALIZED,
-            local_work_bucket: WorkBucket::new(true, scheduler.worker_monitor.clone()),
+            local_work_bucket: WorkBucket::new(true, scheduler.worker_monitor.clone(), false),
             sender,
             scheduler,
             stat: Default::default(),
             mmtk: None,
             is_coordinator,
-            local_work_buffer: Vec::with_capacity(LOCALLY_CACHED_WORKS),
+            local_work_buffer: Worker::new_fifo(),
         }
     }
 
     #[inline]
     pub fn add_work(&mut self, bucket: WorkBucketStage, work: impl GCWork<VM>) {
-        if !self.scheduler().work_buckets[bucket].is_activated() {
-            self.scheduler.work_buckets[bucket].add_with_priority(1000, box work);
+        // If the bucket is closed or we still have pending local jobs, push this one to the global pool.
+        if !self.scheduler().work_buckets[bucket].is_activated()
+            || !self.local_work_buffer.is_empty()
+        {
+            self.scheduler.work_buckets[bucket].add(work);
             return;
         }
-        self.local_work_buffer.push((bucket, box work));
-        if self.local_work_buffer.len() > LOCALLY_CACHED_WORKS {
-            self.flush();
-        }
-    }
-
-    #[cold]
-    fn flush(&mut self) {
-        let mut buffer = Vec::with_capacity(LOCALLY_CACHED_WORKS);
-        std::mem::swap(&mut buffer, &mut self.local_work_buffer);
-        for (bucket, work) in buffer {
-            self.scheduler.work_buckets[bucket].add_with_priority(1000, work);
-        }
+        // Otherwise, add it to the local queue.
+        self.local_work_buffer.push(box work);
     }
 
     pub fn is_parked(&self) -> bool {
@@ -145,15 +136,19 @@ impl<VM: VMBinding> GCWorker<VM> {
         work.do_work(self, self.mmtk.unwrap());
     }
 
+    fn poll(&self) -> Box<dyn GCWork<VM>> {
+        // Try pop from local buffer first, then the global pool(s).
+        self.local_work_buffer
+            .pop()
+            .or_else(|| Some(self.scheduler().poll(self)))
+            .unwrap()
+    }
+
     pub fn run(&mut self, mmtk: &'static MMTK<VM>) {
         self.mmtk = Some(mmtk);
         self.parked.store(false, Ordering::SeqCst);
         loop {
-            while let Some((bucket, mut work)) = self.local_work_buffer.pop() {
-                debug_assert!(self.scheduler.work_buckets[bucket].is_activated());
-                work.do_work_with_stat(self, mmtk);
-            }
-            let mut work = self.scheduler().poll(self);
+            let mut work = self.poll();
             debug_assert!(!self.is_parked());
             work.do_work_with_stat(self, mmtk);
         }
@@ -162,6 +157,8 @@ impl<VM: VMBinding> GCWorker<VM> {
 
 pub struct WorkerGroup<VM: VMBinding> {
     pub workers: Vec<GCWorker<VM>>,
+    pub stealers: Vec<(usize, Stealer<Box<dyn GCWork<VM>>>)>,
+    parked_workers: AtomicUsize,
 }
 
 impl<VM: VMBinding> WorkerGroup<VM> {
@@ -170,21 +167,42 @@ impl<VM: VMBinding> WorkerGroup<VM> {
         scheduler: Weak<GCWorkScheduler<VM>>,
         sender: Sender<CoordinatorMessage<VM>>,
     ) -> Arc<Self> {
+        let workers = (0..workers)
+            .map(|i| GCWorker::new(i, scheduler.clone(), false, sender.clone()))
+            .collect::<Vec<_>>();
+        let stealers = workers
+            .iter()
+            .map(|w| (w.ordinal, w.local_work_buffer.stealer()))
+            .collect();
         Arc::new(Self {
-            workers: (0..workers)
-                .map(|i| GCWorker::new(i, scheduler.clone(), false, sender.clone()))
-                .collect(),
+            workers,
+            stealers,
+            parked_workers: Default::default(),
         })
     }
 
+    #[inline(always)]
     pub fn worker_count(&self) -> usize {
         self.workers.len()
     }
 
-    pub fn parked_workers(&self) -> usize {
-        self.workers.iter().filter(|w| w.is_parked()).count()
+    #[inline(always)]
+    pub fn inc_parked_workers(&self) -> bool {
+        let old = self.parked_workers.fetch_add(1, Ordering::SeqCst);
+        old + 1 == self.worker_count()
     }
 
+    #[inline(always)]
+    pub fn dec_parked_workers(&self) {
+        self.parked_workers.fetch_sub(1, Ordering::SeqCst);
+    }
+
+    #[inline(always)]
+    pub fn parked_workers(&self) -> usize {
+        self.parked_workers.load(Ordering::SeqCst)
+    }
+
+    #[inline(always)]
     pub fn all_parked(&self) -> bool {
         self.parked_workers() == self.worker_count()
     }

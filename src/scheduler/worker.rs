@@ -155,9 +155,14 @@ impl<VM: VMBinding> GCWorker<VM> {
     }
 }
 
+pub struct StealerWithOrdinal<VM: VMBinding> {
+    pub id: usize,
+    pub stealer: Stealer<Box<dyn GCWork<VM>>>,
+}
+
 pub struct WorkerGroup<VM: VMBinding> {
     pub workers: Vec<GCWorker<VM>>,
-    pub stealers: Vec<(usize, Stealer<Box<dyn GCWork<VM>>>)>,
+    pub stealers: Vec<StealerWithOrdinal<VM>>,
     parked_workers: AtomicUsize,
 }
 
@@ -172,7 +177,10 @@ impl<VM: VMBinding> WorkerGroup<VM> {
             .collect::<Vec<_>>();
         let stealers = workers
             .iter()
-            .map(|w| (w.ordinal, w.local_work_buffer.stealer()))
+            .map(|w| StealerWithOrdinal {
+                id: w.ordinal,
+                stealer: w.local_work_buffer.stealer(),
+            })
             .collect();
         Arc::new(Self {
             workers,

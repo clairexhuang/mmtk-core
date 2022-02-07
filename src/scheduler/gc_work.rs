@@ -502,6 +502,7 @@ impl<E: ProcessEdgesWork> GCWork<E::VM> for ScanObjects<E> {
     }
 }
 
+// ADDED
 pub struct ProcessModBuf<E: ProcessEdgesWork> {
     modbuf: Vec<ObjectReference>,
     phantom: PhantomData<E>,
@@ -537,3 +538,47 @@ impl<E: ProcessEdgesWork> GCWork<E::VM> for ProcessModBuf<E> {
         }
     }
 }
+
+pub struct EdgesProcessModBuf<E: ProcessEdgesWork> {
+    modbuf: Vec<Address>,
+    phantom: PhantomData<E>,
+    meta: MetadataSpec,
+}
+
+impl<E: ProcessEdgesWork> EdgesProcessModBuf<E> {
+    pub fn new(modbuf: Vec<Address>, meta: MetadataSpec) -> Self {
+        Self {
+            modbuf,
+            meta,
+            phantom: PhantomData,
+        }
+    }
+}
+
+impl<E: ProcessEdgesWork> GCWork<E::VM> for EdgesProcessModBuf<E> {
+    #[inline(always)]
+    fn do_work(&mut self, worker: &mut GCWorker<E::VM>, mmtk: &'static MMTK<E::VM>) {
+        if !self.modbuf.is_empty() {
+            for e in &self.modbuf {
+                store_metadata::<E::VM>(
+                    &self.meta,
+                    unsafe { e.to_object_reference() },
+                    crate::plan::barriers::UNLOGGED_VALUE,
+                    None,
+                    Some(Ordering::SeqCst),
+                );
+            }
+        }
+        if mmtk.plan.is_current_gc_nursery() {
+            //if !self.modbuf.is_empty() {
+                //let mut modbuf = vec![];
+                //::std::mem::swap(&mut modbuf, &mut self.modbuf);
+                //GCWork::do_work(&mut E::new(modbuf, false, mmtk), worker, mmtk)
+            //}
+        } else {
+            // Do nothing
+        }
+    }
+}
+
+

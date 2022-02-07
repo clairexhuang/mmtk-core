@@ -13,7 +13,8 @@
 //!
 //! For more about implementing a plan, it is recommended to read the [MMTk tutorial](/docs/tutorial/Tutorial.md).
 
-mod barriers;
+//CHANGED
+pub mod barriers;
 pub use barriers::BarrierSelector;
 
 pub(crate) mod gc_requester;

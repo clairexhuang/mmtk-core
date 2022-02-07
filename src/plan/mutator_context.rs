@@ -136,8 +136,33 @@ pub trait MutatorContext<VM: VMBinding>: Send + 'static {
     fn get_tls(&self) -> VMMutatorThread;
     fn barrier(&mut self) -> &mut dyn Barrier;
 
-    fn record_modified_node(&mut self, obj: ObjectReference) {
-        self.barrier().post_write_barrier(WriteTarget::Object(obj));
+    // CHANGED
+    fn record_modified_node(
+        &mut self,
+        src: ObjectReference,
+        slot: Address,
+        val: ObjectReference,
+    ) {
+        self.barrier()
+            .post_write_barrier(WriteTarget::Field { src, slot, val });
+    }
+
+    #[inline(always)]
+    fn object_reference_arraycopy(
+        &mut self,
+        src: ObjectReference,
+        src_offset: usize,
+        dst: ObjectReference,
+        dst_offset: usize,
+        len: usize,
+    ) {
+        self.barrier().post_write_barrier(WriteTarget::ArrayCopy {
+            src,
+            src_offset,
+            dst,
+            dst_offset,
+            len,
+        });
     }
 }
 

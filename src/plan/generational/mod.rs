@@ -35,9 +35,9 @@ pub(super) mod global;
 ///  - Set `ACTIVE_BARRIER` to `BarrierSelector::NoBarrier`.
 /// ## 2. Object barrier
 ///  - Set `ACTIVE_BARRIER` to `BarrierSelector::ObjectBarrier`.
-pub const ACTIVE_BARRIER: BarrierSelector = BarrierSelector::ObjectBarrier;
+pub const ACTIVE_BARRIER: BarrierSelector = BarrierSelector::FieldLoggingBarrier;
 /// Full heap collection as nursery GC.
-pub const FULL_NURSERY_GC: bool = false;
+pub const FULL_NURSERY_GC: bool = true;
 
 /// Constraints for generational plans. Each generational plan should overwrite based on this constant.
 pub const GEN_CONSTRAINTS: PlanConstraints = PlanConstraints {
@@ -45,7 +45,8 @@ pub const GEN_CONSTRAINTS: PlanConstraints = PlanConstraints {
     gc_header_bits: 2,
     gc_header_words: 0,
     num_specialized_scans: 1,
-    needs_log_bit: ACTIVE_BARRIER.equals(BarrierSelector::ObjectBarrier),
+    // CHANGED
+    needs_log_bit: ACTIVE_BARRIER.equals(BarrierSelector::ObjectBarrier) || ACTIVE_BARRIER.equals(BarrierSelector::FieldLoggingBarrier),
     barrier: ACTIVE_BARRIER,
     max_non_los_default_alloc_bytes: crate::util::rust_util::min_of_usize(
         crate::plan::plan_constraints::MAX_NON_LOS_ALLOC_BYTES_COPYING_PLAN,
@@ -57,7 +58,8 @@ pub const GEN_CONSTRAINTS: PlanConstraints = PlanConstraints {
 /// Create global side metadata specs for generational plans. This will call SideMetadataContext::new_global_specs().
 /// So if a plan calls this, it should not call SideMetadataContext::new_global_specs() again.
 pub fn new_generational_global_metadata_specs<VM: VMBinding>() -> Vec<SideMetadataSpec> {
-    let specs = if ACTIVE_BARRIER == BarrierSelector::ObjectBarrier {
+    // CHANGED
+    let specs = if true {
         crate::util::metadata::extract_side_metadata(&[*VM::VMObjectModel::GLOBAL_LOG_BIT_SPEC])
     } else {
         vec![]

@@ -14,6 +14,8 @@ use crate::MMTK;
 pub enum BarrierSelector {
     NoBarrier,
     ObjectBarrier,
+    // CHANGED
+    FieldLoggingBarrier
 }
 
 impl BarrierSelector {
@@ -25,8 +27,24 @@ impl BarrierSelector {
 
 /// For field writes in HotSpot, we cannot always get the source object pointer and the field address
 pub enum WriteTarget {
-    Object(ObjectReference),
-    Slot(Address),
+    // CHANGED
+    Field {
+        src: ObjectReference,
+        slot: Address,
+        val: ObjectReference,
+    },
+    ArrayCopy {
+        src: ObjectReference,
+        src_offset: usize,
+        dst: ObjectReference,
+        dst_offset: usize,
+        len: usize,
+    },
+    Clone {
+        src: ObjectReference,
+        dst: ObjectReference,
+    },
+    // END CHANGE
 }
 
 pub trait Barrier: 'static + Send {
@@ -114,10 +132,155 @@ impl<E: ProcessEdgesWork> Barrier for ObjectRememberingBarrier<E> {
     #[inline(always)]
     fn post_write_barrier(&mut self, target: WriteTarget) {
         match target {
-            WriteTarget::Object(obj) => {
-                self.enqueue_node(obj);
+            // CHANGED
+            WriteTarget::Field { src, .. } => {
+                self.enqueue_node(src);
             }
-            _ => unreachable!(),
+            WriteTarget::ArrayCopy { dst, .. } => {
+                self.enqueue_node(dst);
+            }
+            WriteTarget::Clone { dst, .. } => {
+                self.enqueue_node(dst);
+            }
+        }
+    }
+}
+
+// ADDED
+pub const UNLOGGED_VALUE: usize = 0b1;
+pub const LOGGED_VALUE: usize = 0b0;
+
+pub const UNLOCKED_VALUE: usize = 0b0;
+pub const LOCKED_VALUE: usize = 0b1;
+
+pub struct FieldLoggingBarrier <E: ProcessEdgesWork> {
+    mmtk: &'static MMTK<E::VM>,
+    edges: Vec<Address>,
+    nodes: Vec<ObjectReference>,
+    meta: MetadataSpec,
+}
+
+impl<E: ProcessEdgesWork> FieldLoggingBarrier <E> {
+    #[allow(unused)]
+    pub fn new(mmtk: &'static MMTK<E::VM>, meta: MetadataSpec) -> Self {
+        Self {
+            mmtk,
+            edges: vec![],
+            nodes: vec![],
+            meta,
+        }
+    }
+
+    #[inline(always)]
+    fn log_object(&self, object: ObjectReference) -> bool {
+        loop {
+            let old_value =
+                load_metadata::<E::VM>(&self.meta, object, None, Some(Ordering::SeqCst));
+            if old_value == 0 {
+                return false;
+            }
+            if compare_exchange_metadata::<E::VM>(
+                &self.meta,
+                object,
+                1,
+                0,
+                None,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                return true;
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn log_edge(&self, edge: Address) -> bool {
+        loop {
+            let old_value = load_metadata::<E::VM>(
+                &self.meta,
+                unsafe { edge.to_object_reference() },
+                None,
+                Some(Ordering::SeqCst),
+            );
+            if old_value == 0 {
+                return false;
+            }
+            if compare_exchange_metadata::<E::VM>(
+                &self.meta,
+                unsafe { edge.to_object_reference() },
+                1,
+                0,
+                None,
+                Ordering::SeqCst,
+                Ordering::SeqCst,
+            ) {
+                return true;
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn enqueue_edge(&mut self, edge: Address) {
+        if self.log_edge(edge) {
+            println!("slow path {:?}", edge);
+        //assert!(!self.log_edge(edge));
+            // slow path code
+            self.edges.push(edge);
+            if self.edges.len() >= E::CAPACITY {
+                self.flush();
+            }
+        }
+    }
+
+    #[inline(always)]
+    fn enqueue_node(&mut self, obj: ObjectReference) {
+        if self.log_object(obj) {
+            self.nodes.push(obj);
+            if self.nodes.len() >= E::CAPACITY {
+                self.flush();
+            }
+        }
+    }
+}
+
+
+
+impl<E: ProcessEdgesWork> Barrier for FieldLoggingBarrier <E> {
+    #[cold]
+    fn flush(&mut self) {
+        if !self.nodes.is_empty() {
+            let mut nodes = vec![];
+            std::mem::swap(&mut nodes, &mut self.nodes);
+            self.mmtk.scheduler.work_buckets[WorkBucketStage::Closure]
+                .add(ProcessModBuf::<E>::new(nodes, self.meta));
+        }
+        if !self.edges.is_empty() {
+            let mut edges = vec![];
+            std::mem::swap(&mut edges, &mut self.edges);
+            self.mmtk.scheduler.work_buckets[WorkBucketStage::Closure]
+                .add(EdgesProcessModBuf::<E>::new(edges, self.meta));
+        }
+    }
+
+    // CHANGED NAME
+    #[inline(always)]
+    fn post_write_barrier(&mut self, target: WriteTarget) {
+        match target {
+            WriteTarget::Field { slot, .. } => {
+                self.enqueue_edge(slot);
+            }
+            WriteTarget::ArrayCopy {
+                dst,
+                dst_offset,
+                len,
+                ..
+            } => {
+                let dst_base = dst.to_address() + dst_offset;
+                for i in 0..len {
+                    self.enqueue_edge(dst_base + (i << 3));
+                }
+            }
+            WriteTarget::Clone { dst, .. } => self.enqueue_node(dst),
         }
     }
 }

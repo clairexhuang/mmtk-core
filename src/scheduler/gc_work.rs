@@ -570,11 +570,11 @@ impl<E: ProcessEdgesWork> GCWork<E::VM> for EdgesProcessModBuf<E> {
             }
         }
         if mmtk.plan.is_current_gc_nursery() {
-            //if !self.modbuf.is_empty() {
-                //let mut modbuf = vec![];
-                //::std::mem::swap(&mut modbuf, &mut self.modbuf);
-                //GCWork::do_work(&mut E::new(modbuf, false, mmtk), worker, mmtk)
-            //}
+            if !self.modbuf.is_empty() {
+                let mut modbuf = vec![];
+                ::std::mem::swap(&mut modbuf, &mut self.modbuf);
+                GCWork::do_work(&mut E::new(modbuf, false, mmtk), worker, mmtk)
+            }
         } else {
             // Do nothing
         }

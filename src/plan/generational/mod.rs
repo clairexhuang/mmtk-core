@@ -37,7 +37,7 @@ pub(super) mod global;
 ///  - Set `ACTIVE_BARRIER` to `BarrierSelector::ObjectBarrier`.
 pub const ACTIVE_BARRIER: BarrierSelector = BarrierSelector::FieldLoggingBarrier;
 /// Full heap collection as nursery GC.
-pub const FULL_NURSERY_GC: bool = true;
+pub const FULL_NURSERY_GC: bool = false;
 
 /// Constraints for generational plans. Each generational plan should overwrite based on this constant.
 pub const GEN_CONSTRAINTS: PlanConstraints = PlanConstraints {

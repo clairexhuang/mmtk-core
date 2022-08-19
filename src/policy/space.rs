@@ -400,6 +400,7 @@ pub trait Space<VM: VMBinding>: 'static + SFT + Sync + Downcast {
         let allow_gc = should_poll && VM::VMActivePlan::global().is_initialized();
         //INTRODUCE BUG
         let lock = self.common().acquire_lock.lock().unwrap();
+        probe!(mmtk,spacelockacquired);
 
         trace!("Reserving pages");
         let pr = self.get_page_resource();
@@ -413,6 +414,7 @@ pub trait Space<VM: VMBinding>: 'static + SFT + Sync + Downcast {
             pr.clear_request(pages_reserved);
             //INTRODUCE BUG
             drop(lock);
+            probe!(mmtk,spacelockreleased);
             VM::VMCollection::block_for_gc(VMMutatorThread(tls)); // We have checked that this is mutator
             unsafe { Address::zero() }
         } else {
@@ -493,6 +495,7 @@ pub trait Space<VM: VMBinding>: 'static + SFT + Sync + Downcast {
                     pr.clear_request(pages_reserved);
                     //INTRODUCE BUG
                     drop(lock);
+                    probe!(mmtk,spacelockreleased);
                     VM::VMCollection::block_for_gc(VMMutatorThread(tls)); // We asserted that this is mutator.
                     unsafe { Address::zero() }
                 }

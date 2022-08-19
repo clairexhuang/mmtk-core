@@ -421,6 +421,7 @@ pub trait Space<VM: VMBinding>: 'static + SFT + Sync + Downcast {
             // We need to minimize the scope of this lock for performance when we have many threads (mutator threads, or GC threads with copying allocators).
             // See: https://github.com/mmtk/mmtk-core/issues/610
             let lock = self.common().acquire_lock.lock().unwrap();
+            probe!(mmtk,spacelockacquired);
 
             match pr.get_new_pages(self.common().descriptor, pages_reserved, pages, tls) {
                 Ok(res) => {
@@ -437,6 +438,7 @@ pub trait Space<VM: VMBinding>: 'static + SFT + Sync + Downcast {
 
                     // Once we finish grow_space, we can drop the lock.
                     drop(lock);
+                    probe!(mmtk,spacelockreleased);
 
                     // Mmap the pages and the side metadata, and handle error. In case of any error,
                     // we will either call back to the VM for OOM, or simply panic.
@@ -489,6 +491,7 @@ pub trait Space<VM: VMBinding>: 'static + SFT + Sync + Downcast {
                 }
                 Err(_) => {
                     drop(lock); // drop the lock immediately
+                    probe!(mmtk,spacelockreleased);
 
                     // We thought we had memory to allocate, but somehow failed the allocation. Will force a GC.
                     assert!(

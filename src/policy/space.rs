@@ -480,7 +480,14 @@ pub trait Space<VM: VMBinding>: 'static + SFT + Sync + Downcast {
                     }
 
                     debug!("Space.acquire(), returned = {}", res.start);
-                    res.start
+                    let ret = res.start;
+                    
+                    //INTRODUCE BUG
+                    drop(lock);
+                    probe!(mmtk,spacelockreleased);
+
+                    ret;
+                    
                 }
                 Err(_) => {
 

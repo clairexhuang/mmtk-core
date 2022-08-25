@@ -486,8 +486,8 @@ pub trait Space<VM: VMBinding>: 'static + SFT + Sync + Downcast {
                     drop(lock);
                     probe!(mmtk,spacelockreleased);
 
-                    ret;
-                    
+                    ret
+
                 }
                 Err(_) => {
 

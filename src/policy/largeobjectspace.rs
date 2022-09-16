@@ -42,6 +42,9 @@ impl<VM: VMBinding> SFT for LargeObjectSpace<VM> {
     fn name(&self) -> &str {
         self.get_name()
     }
+    fn sft_id(&self) -> isize {
+        SFTID::LargeObject as isize
+    }
     fn is_live(&self, object: ObjectReference) -> bool {
         self.test_mark_bit(object, self.mark_state)
     }

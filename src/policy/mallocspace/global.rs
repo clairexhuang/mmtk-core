@@ -58,6 +58,9 @@ impl<VM: VMBinding> SFT for MallocSpace<VM> {
     fn name(&self) -> &str {
         self.get_name()
     }
+    fn sft_id(&self) -> isize {
+        SFTID::Malloc as isize
+    }
 
     fn is_live(&self, object: ObjectReference) -> bool {
         is_marked::<VM>(object, Some(Ordering::SeqCst))

@@ -84,10 +84,11 @@ pub trait SFT {
     fn is_in_space(&self, _object: ObjectReference) -> bool {
         true
     }
+    fn sft_id(&self) -> isize;
     /// Is `addr` a valid object reference to an object allocated in this space?
     /// This default implementation works for all spaces that use MMTk's mapper to allocate memory.
     /// Some spaces, like `MallocSpace`, use third-party libraries to allocate memory.
-    /// Such spaces needs to override this method.
+    /// Such spaces needs to override this method
     #[cfg(feature = "is_mmtk_object")]
     #[inline(always)]
     fn is_mmtk_object(&self, addr: Address) -> bool {
@@ -118,6 +119,17 @@ pub trait SFT {
     ) -> ObjectReference;
 }
 
+#[repr(isize)]
+pub enum SFTID {
+    Empty = 0,
+    Immortal = 1,
+    Copy = 2,
+    Immix = 3,
+    LargeObject = 4,
+    LockFreeImmortal = 5,
+    MarkCompact = 6,
+    Malloc = 7
+}
 // Create erased VM refs for these types that will be used in `sft_trace_object()`.
 // In this way, we can store the refs with <VM> in SFT (which cannot have parameters with generic type parameters)
 
@@ -133,6 +145,9 @@ struct EmptySpaceSFT {}
 const EMPTY_SFT_NAME: &str = "empty";
 
 impl SFT for EmptySpaceSFT {
+    fn sft_id(&self) -> isize {
+        SFTID::Empty as isize
+    }
     fn name(&self) -> &str {
         EMPTY_SFT_NAME
     }
@@ -400,7 +415,7 @@ pub trait Space<VM: VMBinding>: 'static + SFT + Sync + Downcast {
         let allow_gc = should_poll && VM::VMActivePlan::global().is_initialized();
         //INTRODUCE BUG
         let lock = self.common().acquire_lock.lock().unwrap();
-        probe!(mmtk,spacelockacquired);
+        probe!(mmtk,spacelockacquired,self.as_sft().sft_id());
 
         trace!("Reserving pages");
         let pr = self.get_page_resource();
@@ -414,7 +429,7 @@ pub trait Space<VM: VMBinding>: 'static + SFT + Sync + Downcast {
             pr.clear_request(pages_reserved);
             //INTRODUCE BUG
             drop(lock);
-            probe!(mmtk,spacelockreleased);
+            probe!(mmtk,spacelockreleased,self.as_sft().sft_id());
             VM::VMCollection::block_for_gc(VMMutatorThread(tls)); // We have checked that this is mutator
             unsafe { Address::zero() }
         } else {
@@ -484,7 +499,7 @@ pub trait Space<VM: VMBinding>: 'static + SFT + Sync + Downcast {
                     
                     //INTRODUCE BUG
                     drop(lock);
-                    probe!(mmtk,spacelockreleased);
+                    probe!(mmtk,spacelockreleased,self.as_sft().sft_id());
 
                     ret
 
@@ -502,7 +517,7 @@ pub trait Space<VM: VMBinding>: 'static + SFT + Sync + Downcast {
                     pr.clear_request(pages_reserved);
                     //INTRODUCE BUG
                     drop(lock);
-                    probe!(mmtk,spacelockreleased);
+                    probe!(mmtk,spacelockreleased,self.as_sft().sft_id());
                     VM::VMCollection::block_for_gc(VMMutatorThread(tls)); // We asserted that this is mutator.
                     unsafe { Address::zero() }
                 }

@@ -84,10 +84,11 @@ pub trait SFT {
     fn is_in_space(&self, _object: ObjectReference) -> bool {
         true
     }
+    fn sft_id(&self) -> isize;
     /// Is `addr` a valid object reference to an object allocated in this space?
     /// This default implementation works for all spaces that use MMTk's mapper to allocate memory.
     /// Some spaces, like `MallocSpace`, use third-party libraries to allocate memory.
-    /// Such spaces needs to override this method.
+    /// Such spaces needs to override this method
     #[cfg(feature = "is_mmtk_object")]
     #[inline(always)]
     fn is_mmtk_object(&self, addr: Address) -> bool {
@@ -118,6 +119,17 @@ pub trait SFT {
     ) -> ObjectReference;
 }
 
+#[repr(isize)]
+pub enum SFTID {
+    Empty = 0,
+    Immortal = 1,
+    Copy = 2,
+    Immix = 3,
+    LargeObject = 4,
+    LockFreeImmortal = 5,
+    MarkCompact = 6,
+    Malloc = 7
+}
 // Create erased VM refs for these types that will be used in `sft_trace_object()`.
 // In this way, we can store the refs with <VM> in SFT (which cannot have parameters with generic type parameters)
 
@@ -133,6 +145,9 @@ struct EmptySpaceSFT {}
 const EMPTY_SFT_NAME: &str = "empty";
 
 impl SFT for EmptySpaceSFT {
+    fn sft_id(&self) -> isize {
+        SFTID::Empty as isize
+    }
     fn name(&self) -> &str {
         EMPTY_SFT_NAME
     }
@@ -421,7 +436,7 @@ pub trait Space<VM: VMBinding>: 'static + SFT + Sync + Downcast {
             // We need to minimize the scope of this lock for performance when we have many threads (mutator threads, or GC threads with copying allocators).
             // See: https://github.com/mmtk/mmtk-core/issues/610
             let lock = self.common().acquire_lock.lock().unwrap();
-            probe!(mmtk,spacelockacquired);
+            probe!(mmtk,spacelockacquired,self.as_sft().sft_id());
 
             match pr.get_new_pages(self.common().descriptor, pages_reserved, pages, tls) {
                 Ok(res) => {
@@ -438,7 +453,7 @@ pub trait Space<VM: VMBinding>: 'static + SFT + Sync + Downcast {
 
                     // Once we finish grow_space, we can drop the lock.
                     drop(lock);
-                    probe!(mmtk,spacelockreleased);
+                    probe!(mmtk,spacelockreleased,self.as_sft().sft_id());
 
                     // Mmap the pages and the side metadata, and handle error. In case of any error,
                     // we will either call back to the VM for OOM, or simply panic.
@@ -491,7 +506,7 @@ pub trait Space<VM: VMBinding>: 'static + SFT + Sync + Downcast {
                 }
                 Err(_) => {
                     drop(lock); // drop the lock immediately
-                    probe!(mmtk,spacelockreleased);
+                    probe!(mmtk,spacelockreleased,self.as_sft().sft_id());
 
                     // We thought we had memory to allocate, but somehow failed the allocation. Will force a GC.
                     assert!(

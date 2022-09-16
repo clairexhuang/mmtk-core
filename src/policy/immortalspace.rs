@@ -35,6 +35,9 @@ impl<VM: VMBinding> SFT for ImmortalSpace<VM> {
     fn name(&self) -> &str {
         self.get_name()
     }
+    fn sft_id(&self) -> isize {
+        SFTID::Immortal as isize
+    }
     fn is_live(&self, _object: ObjectReference) -> bool {
         true
     }

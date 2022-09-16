@@ -33,6 +33,9 @@ impl<VM: VMBinding> SFT for CopySpace<VM> {
     fn name(&self) -> &str {
         self.get_name()
     }
+    fn sft_id(&self) -> isize {
+        SFTID::Copy as isize
+    }
 
     fn is_live(&self, object: ObjectReference) -> bool {
         !self.is_from_space() || object_forwarding::is_forwarded::<VM>(object)

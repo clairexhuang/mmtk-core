@@ -35,6 +35,9 @@ impl<VM: VMBinding> SFT for MarkCompactSpace<VM> {
     fn name(&self) -> &str {
         self.get_name()
     }
+    fn sft_id(&self) -> isize {
+        SFTID::MarkCompact as isize
+    }
 
     #[inline(always)]
     fn get_forwarded_object(&self, object: ObjectReference) -> Option<ObjectReference> {

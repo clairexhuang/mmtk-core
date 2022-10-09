@@ -34,11 +34,7 @@ pub trait GCWork<VM: VMBinding>: 'static + Send {
         };
 
         // Do the actual work
-        // ADD PROBE
-        probe!(mmtk,startwork);
         self.do_work(worker, mmtk);
-        // ADD PROBE
-        probe!(mmtk,endwork);
 
         #[cfg(feature = "work_packet_stats")]
         // Finish collecting statistics

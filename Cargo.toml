@@ -21,6 +21,8 @@ doctest = false
 [dependencies]
 # MMTk macros
 mmtk-macros = { version = "0.15.0", path = "macros/" }
+# bpf probes
+probe = "0.3"
 
 libc = "0.2"
 jemalloc-sys = { version = "0.3.2", features = ["disable_initial_exec_tls"], optional = true }

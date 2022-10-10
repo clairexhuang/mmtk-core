@@ -178,11 +178,12 @@ impl<VM: VMBinding> GCWorker<VM> {
         self.copy = crate::plan::create_gc_worker_context(tls, mmtk);
         loop {
             let mut work = self.poll();
+            let typename = work.get_type_name();
             // ADD PROBE
             probe!(mmtk,startwork);
             work.do_work_with_stat(self, mmtk);
             // ADD PROBE
-            probe!(mmtk,endwork);
+            probe!(mmtk,endwork,typename.as_ptr(),typename.len());
         }
     }
 }

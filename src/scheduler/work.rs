@@ -16,6 +16,10 @@ pub trait GCWork<VM: VMBinding>: 'static + Send {
     /// Usually `do_work_with_stat()` should be used.
     fn do_work(&mut self, worker: &mut GCWorker<VM>, mmtk: &'static MMTK<VM>);
 
+    // Get type name 
+    fn get_type_name(&self) -> &'static str{
+        std::any::type_name::<Self>()
+    }
     /// Do work and collect statistics. This internally calls `do_work()`. In most cases,
     /// this should be called rather than `do_work()` so that MMTk can correctly collect
     /// statistics for the work packets.

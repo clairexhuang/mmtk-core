@@ -470,6 +470,8 @@ pub trait ProcessEdgesWork:
 
     #[inline]
     fn process_edges(&mut self) {
+        // get work packet size
+        probe!(mmtk,processedgeslen,self.edges.len());
         for i in 0..self.edges.len() {
             self.process_edge(self.edges[i])
         }

@@ -481,6 +481,8 @@ pub trait ProcessEdgesWork:
 impl<E: ProcessEdgesWork> GCWork<E::VM> for E {
     #[inline]
     fn do_work(&mut self, worker: &mut GCWorker<E::VM>, mmtk: &'static MMTK<E::VM>) {
+        // check work packets are properly added to ProcessEdges bucket
+        assert!(mmtk.scheduler.work_buckets[WorkBucketStage::Closure].is_drained());
         assert!(mmtk.scheduler.work_buckets[WorkBucketStage::ProcessEdges].is_activated());
         assert!(!mmtk.scheduler.work_buckets[WorkBucketStage::SoftRefClosure].is_activated());
         trace!("ProcessEdgesWork");

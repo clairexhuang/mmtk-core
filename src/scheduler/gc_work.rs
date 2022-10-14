@@ -435,7 +435,7 @@ pub trait ProcessEdgesWork:
             // Executing these work packets now can remarkably reduce the global synchronization time.
             self.worker().do_work(work_packet);
         } else {
-            self.mmtk.scheduler.work_buckets[WorkBucketStage::Closure].add(work_packet);
+            self.mmtk.scheduler.work_buckets[WorkBucketStage::ProcessEdges].add(work_packet);
         }
     }
 
@@ -478,7 +478,9 @@ pub trait ProcessEdgesWork:
 
 impl<E: ProcessEdgesWork> GCWork<E::VM> for E {
     #[inline]
-    fn do_work(&mut self, worker: &mut GCWorker<E::VM>, _mmtk: &'static MMTK<E::VM>) {
+    fn do_work(&mut self, worker: &mut GCWorker<E::VM>, mmtk: &'static MMTK<E::VM>) {
+        assert!(mmtk.scheduler.work_buckets[WorkBucketStage::ProcessEdges].is_activated());
+        assert!(!mmtk.scheduler.work_buckets[WorkBucketStage::SoftRefClosure].is_activated());
         trace!("ProcessEdgesWork");
         self.set_worker(worker);
         self.process_edges();
@@ -554,7 +556,7 @@ impl<E: ProcessEdgesWork> RootsWorkFactory<EdgeOf<E>> for ProcessEdgesWorkRootsW
     fn create_process_edge_roots_work(&mut self, edges: Vec<EdgeOf<E>>) {
         crate::memory_manager::add_work_packet(
             self.mmtk,
-            WorkBucketStage::Closure,
+            WorkBucketStage::ProcessEdges,
             E::new(edges, true, self.mmtk),
         );
     }

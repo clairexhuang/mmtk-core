@@ -23,21 +23,26 @@ use crate::vm::*;
 use crate::{
     plan::ObjectQueue,
     scheduler::{GCWork, GCWorkScheduler, GCWorker, WorkBucketStage},
-    util::{
-        heap::FreeListPageResource,
-        opaque_pointer::{VMThread, VMWorkerThread},
-    },
+    util::opaque_pointer::{VMThread, VMWorkerThread},
     MMTK,
 };
 use atomic::Ordering;
 use std::sync::{atomic::AtomicU8, Arc};
+
+// For 32-bit platforms, we still use FreeListPageResource
+#[cfg(target_pointer_width = "32")]
+use crate::util::heap::FreeListPageResource as ImmixPageResource;
+
+// BlockPageResource is for 64-bit platforms only
+#[cfg(target_pointer_width = "64")]
+use crate::util::heap::BlockPageResource as ImmixPageResource;
 
 pub(crate) const TRACE_KIND_FAST: TraceKind = 0;
 pub(crate) const TRACE_KIND_DEFRAG: TraceKind = 1;
 
 pub struct ImmixSpace<VM: VMBinding> {
     common: CommonSpace<VM>,
-    pr: FreeListPageResource<VM>,
+    pr: ImmixPageResource<VM>,
     /// Allocation status for all chunks in immix space
     pub chunk_map: ChunkMap,
     /// Current line mark state
@@ -210,20 +215,36 @@ impl<VM: VMBinding> ImmixSpace<VM> {
             heap,
         );
         ImmixSpace {
+            #[cfg(target_pointer_width = "32")]
             pr: if common.vmrequest.is_discontiguous() {
-                FreeListPageResource::new_discontiguous(vm_map)
+                ImmixPageResource::new_discontiguous(vm_map)
             } else {
-                FreeListPageResource::new_contiguous(common.start, common.extent, vm_map)
+                ImmixPageResource::new_contiguous(common.start, common.extent, vm_map)
             },
+            #[cfg(target_pointer_width = "64")]
+            pr: ImmixPageResource::new_contiguous(
+                Block::LOG_PAGES,
+                common.start,
+                common.extent,
+                vm_map,
+                scheduler.num_workers(),
+            ),
             common,
             chunk_map: ChunkMap::new(),
             line_mark_state: AtomicU8::new(Line::RESET_MARK_STATE),
             line_unavail_state: AtomicU8::new(Line::RESET_MARK_STATE),
-            reusable_blocks: BlockList::default(),
+            reusable_blocks: BlockList::new(scheduler.num_workers()),
             defrag: Defrag::default(),
             mark_state: Self::UNMARKED_STATE,
             scheduler,
         }
+    }
+
+    /// Flush the thread-local queues in BlockPageResource
+    pub fn flush_page_resource(&self) {
+        self.reusable_blocks.flush_all();
+        #[cfg(target_pointer_width = "64")]
+        self.pr.flush_all()
     }
 
     /// Get the number of defrag headroom pages.

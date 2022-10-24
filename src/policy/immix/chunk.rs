@@ -10,6 +10,7 @@ use crate::{
     MMTK,
 };
 use spin::Mutex;
+use std::sync::Arc;
 use std::{ops::Range, sync::atomic::Ordering};
 
 /// Data structure to reference a MMTk 4 MB chunk.
@@ -164,7 +165,14 @@ impl ChunkMap {
         space: &'static ImmixSpace<VM>,
     ) -> Vec<Box<dyn GCWork<VM>>> {
         space.defrag.mark_histograms.lock().clear();
-        self.generate_tasks(|chunk| Box::new(SweepChunk { space, chunk }))
+        let epilogue = Arc::new(FlushPageResource { space });
+        self.generate_tasks(|chunk| {
+            Box::new(SweepChunk {
+                space,
+                chunk,
+                _epilogue: epilogue.clone(),
+            })
+        })
     }
 }
 
@@ -178,6 +186,8 @@ impl Default for ChunkMap {
 struct SweepChunk<VM: VMBinding> {
     space: &'static ImmixSpace<VM>,
     chunk: Chunk,
+    /// A destructor invoked when all `SweepChunk` packets are finished.
+    _epilogue: Arc<FlushPageResource<VM>>,
 }
 
 impl<VM: VMBinding> GCWork<VM> for SweepChunk<VM> {
@@ -188,5 +198,19 @@ impl<VM: VMBinding> GCWork<VM> for SweepChunk<VM> {
             self.chunk.sweep(self.space, &mut histogram);
         }
         self.space.defrag.add_completed_mark_histogram(histogram);
+    }
+}
+
+/// Flush page resource of the immix space when destructing.
+struct FlushPageResource<VM: VMBinding> {
+    space: &'static ImmixSpace<VM>,
+}
+
+impl<VM: VMBinding> Drop for FlushPageResource<VM> {
+    fn drop(&mut self) {
+        // We've finished releasing all the dead blocks to the BlockPageResource's thread-local queues.
+        // Now flush the BlockPageResource.
+        // Note: this is a no-op if ImmixSpace uses FreelistPageResource.
+        self.space.flush_page_resource()
     }
 }

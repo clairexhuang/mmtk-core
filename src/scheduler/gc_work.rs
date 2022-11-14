@@ -668,7 +668,7 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
                     // If an object supports edge-enqueuing, we enqueue its edges.
                     <VM as VMBinding>::VMScanning::scan_object(tls, object, &mut closure);
                     // Add probe to count objects processed
-                    !probe(mmtk,processobject);
+                    probe!(mmtk,processobject);
                     self.post_scan_object(object);
                 } else {
                     // If an object does not support edge-enqueuing, we have to use

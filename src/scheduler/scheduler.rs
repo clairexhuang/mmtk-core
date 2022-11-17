@@ -266,6 +266,7 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
             let bucket = &self.work_buckets[id];
             let bucket_opened = bucket.update(self);
             if bucket_opened {
+                // println!("{:?}",id);
                 if id == WorkBucketStage::ProcessEdges {
                     probe!(mmtk,processedgesstart);
                 }
@@ -471,6 +472,7 @@ impl<VM: VMBinding> GCWorkScheduler<VM> {
         let first_stw_bucket = &self.work_buckets[WorkBucketStage::first_stw_stage()];
         debug_assert!(!first_stw_bucket.is_activated());
         first_stw_bucket.activate();
+        // println!("{:?}",WorkBucketStage::first_stw_stage());
         let _guard = self.worker_monitor.0.lock().unwrap();
         self.worker_monitor.1.notify_all();
     }

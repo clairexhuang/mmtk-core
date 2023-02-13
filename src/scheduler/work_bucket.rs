@@ -262,6 +262,7 @@ pub enum WorkBucketStage {
     Prepare,
     /// Compute the transtive closure following only strong references.
     Closure,
+    ProcessEdges,
     /// Handle Java-style soft references, and potentially expand the transitive closure.
     SoftRefClosure,
     /// Handle Java-style weak references.

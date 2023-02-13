@@ -43,6 +43,9 @@ extern crate crossbeam;
 extern crate num_cpus;
 #[macro_use]
 extern crate downcast_rs;
+// add probe dependencies
+#[macro_use]
+extern crate probe;
 
 mod mmtk;
 pub use mmtk::MMTKBuilder;

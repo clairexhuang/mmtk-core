@@ -7,6 +7,7 @@ use super::MarkSweepSpace;
 use crate::util::constants::LOG_BYTES_IN_PAGE;
 use crate::util::heap::chunk_map::*;
 use crate::util::linear_scan::Region;
+use crate::util::object_enum::BlockMayHaveObjects;
 use crate::vm::ObjectModel;
 use crate::{
     util::{
@@ -45,6 +46,12 @@ impl Region for Block {
 
     fn start(&self) -> Address {
         unsafe { Address::from_usize(self.0.get()) }
+    }
+}
+
+impl BlockMayHaveObjects for Block {
+    fn may_have_objects(&self) -> bool {
+        self.get_state() != BlockState::Unallocated
     }
 }
 
@@ -293,7 +300,7 @@ impl Block {
                 // clear VO bit if it is ever set. It is possible that the VO bit is never set for this cell (i.e. there was no object in this cell before this GC),
                 // we unset the bit anyway.
                 #[cfg(feature = "vo_bit")]
-                crate::util::metadata::vo_bit::unset_vo_bit_nocheck::<VM>(potential_object);
+                crate::util::metadata::vo_bit::unset_vo_bit_nocheck(potential_object);
                 unsafe {
                     cell.store::<Address>(last);
                 }

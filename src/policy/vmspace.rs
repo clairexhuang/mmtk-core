@@ -11,6 +11,7 @@ use crate::util::heap::PageResource;
 use crate::util::metadata::mark_bit::MarkState;
 #[cfg(feature = "set_unlog_bits_vm_space")]
 use crate::util::metadata::MetadataSpec;
+use crate::util::object_enum::ObjectEnumerator;
 use crate::util::opaque_pointer::*;
 use crate::util::ObjectReference;
 use crate::vm::{ObjectModel, VMBinding};
@@ -63,11 +64,11 @@ impl<VM: VMBinding> SFT for VMSpace<VM> {
             VM::VMObjectModel::GLOBAL_LOG_BIT_SPEC.mark_as_unlogged::<VM>(object, Ordering::SeqCst);
         }
         #[cfg(feature = "vo_bit")]
-        crate::util::metadata::vo_bit::set_vo_bit::<VM>(object);
+        crate::util::metadata::vo_bit::set_vo_bit(object);
     }
     #[cfg(feature = "is_mmtk_object")]
     fn is_mmtk_object(&self, addr: Address) -> Option<ObjectReference> {
-        crate::util::metadata::vo_bit::is_vo_bit_set_for_addr::<VM>(addr)
+        crate::util::metadata::vo_bit::is_vo_bit_set_for_addr(addr)
     }
     #[cfg(feature = "is_mmtk_object")]
     fn find_object_from_internal_pointer(
@@ -144,6 +145,13 @@ impl<VM: VMBinding> Space<VM> for VMSpace<VM> {
         // the address range for spaces and the VM space may break those assumptions (as the space is
         // mmapped by the runtime rather than us). So we we use SFT here.
         SFT_MAP.get_checked(start).name() == self.name()
+    }
+
+    fn enumerate_objects(&self, enumerator: &mut dyn ObjectEnumerator) {
+        let external_pages = self.pr.get_external_pages();
+        for ep in external_pages.iter() {
+            enumerator.visit_address_range(ep.start, ep.end);
+        }
     }
 }
 
@@ -269,7 +277,7 @@ impl<VM: VMBinding> VMSpace<VM> {
     ) -> ObjectReference {
         #[cfg(feature = "vo_bit")]
         debug_assert!(
-            crate::util::metadata::vo_bit::is_vo_bit_set::<VM>(object),
+            crate::util::metadata::vo_bit::is_vo_bit_set(object),
             "{:x}: VO bit not set",
             object
         );

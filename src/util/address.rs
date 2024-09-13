@@ -14,6 +14,11 @@ pub type ByteSize = usize;
 /// offset in byte
 pub type ByteOffset = isize;
 
+#[cfg(all(target_arch = "x86", target_feature = "sse"))]
+use std::arch::x86 as arch;
+#[cfg(all(target_arch = "x86_64", target_feature = "sse"))]
+use std::arch::x86_64 as arch;
+
 /// Address represents an arbitrary address. This is designed to represent
 /// address and do address arithmetic mostly in a safe way, and to allow
 /// mark some operations as unsafe. This type needs to be zero overhead
@@ -257,6 +262,34 @@ impl Address {
     pub unsafe fn atomic_store<T: Atomic>(self, val: T::Type, order: Ordering) {
         let loc = &*(self.0 as *const T);
         loc.store(val, order)
+    }
+
+    /// Prefetches the location referenced by this address for a subsequent load
+    pub fn prefetch_load(self) {
+        // On x86, we use the relevant intrinsics
+        #[cfg(all(
+            any(target_arch = "x86", target_arch = "x86_64"),
+            target_feature = "sse"
+        ))]
+        unsafe {
+            arch::_mm_prefetch(self.to_ptr(), arch::_MM_HINT_NTA);
+        }
+        // Otherwise, this defaults to a no-op
+        // TODO: use std::intrinsics::prefetch_read_data when it comes out of nightly
+    }
+
+    /// Prefetches the location referenced by this address for a subsequent store
+    pub fn prefetch_store(self) {
+        // On x86, we use the relevant intrinsics
+        #[cfg(all(
+            any(target_arch = "x86", target_arch = "x86_64"),
+            target_feature = "sse"
+        ))]
+        unsafe {
+            arch::_mm_prefetch(self.to_ptr(), arch::_MM_HINT_ET0);
+        }
+        // Otherwise, this defaults to a no-op
+        // TODO: use std::intrinsics::prefetch_write_data when it comes out of nightly
     }
 
     /// atomic operation: compare and exchange usize
@@ -668,6 +701,17 @@ impl ObjectReference {
     pub fn is_sane(self) -> bool {
         unsafe { SFT_MAP.get_unchecked(self.to_raw_address()) }.is_sane()
     }
+
+    /// Prefetch the object reference in preparation for a later load of the object
+    pub fn prefetch_load(self) {
+        self.to_raw_address().prefetch_load();
+    }
+
+    /// Prefetch the object reference in preparation for a later store to the object
+    pub fn prefetch_store(self) {
+        self.to_raw_address().prefetch_store();
+    }
+
 }
 
 /// allows print Address as upper-case hex value

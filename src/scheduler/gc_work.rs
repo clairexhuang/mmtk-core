@@ -7,6 +7,7 @@ use crate::util::*;
 use crate::vm::slot::Slot;
 use crate::vm::*;
 use crate::*;
+use crate::util::options::PrefetchOption;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
@@ -646,12 +647,37 @@ pub trait ProcessEdgesWork:
             self.process_slot(self.slots[i])
         }
     }
+
+    // fn process_slots_pf<const DIST: usize>(&mut self) {
+    //     probe!(mmtk, process_slots, self.slots.len(), self.is_roots());
+    //     for i in 0..self.slots.len() {
+    //         // Prefetch future edges
+    //         let edge_pf_index = i + DIST;
+    //         if edge_pf_index < self.slots.len() {
+    //             self.slots[edge_pf_index].prefetch_load();
+    //         }
+
+    //         self.process_slot(self.slots[i])
+    //     }
+    // }
 }
 
 impl<E: ProcessEdgesWork> GCWork<E::VM> for E {
+    // fn do_work_pf<const DIST: usize>(&mut self, worker: &mut GCWorker<E::VM>, _mmtk: &'static MMTK<E::VM>) {
+    //     self.set_worker(worker);
+    //     self.process_slots_pf::<DIST>();
+    //     if !self.nodes.is_empty() {
+    //         self.flush();
+    //     }
+    //     #[cfg(feature = "sanity")]
+    //     if self.roots && !_mmtk.is_in_sanity() {
+    //         self.cache_roots_for_sanity_gc();
+    //     }
+    //     trace!("ProcessEdgesWork End");
+    // }
     fn do_work(&mut self, worker: &mut GCWorker<E::VM>, _mmtk: &'static MMTK<E::VM>) {
         self.set_worker(worker);
-        self.process_slots();
+        self.process_slots;
         if !self.nodes.is_empty() {
             self.flush();
         }
@@ -820,7 +846,7 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
         &self,
         buffer: &[ObjectReference],
         worker: &mut GCWorker<<Self::E as ProcessEdgesWork>::VM>,
-        _mmtk: &'static MMTK<<Self::E as ProcessEdgesWork>::VM>,
+        mmtk: &'static MMTK<<Self::E as ProcessEdgesWork>::VM>,
     ) {
         let tls = worker.tls;
 
@@ -830,7 +856,17 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
         let mut scan_later = vec![];
         {
             let mut closure = ObjectsClosure::<Self::E>::new(worker, self.get_bucket());
-            for object in objects_to_scan.iter().copied() {
+            for i in 0..objects_to_scan.len() {
+                // Prefetch future object references
+                if let PrefetchOption::Enabled(dist) = *mmtk.options.objref_prefetch {
+                    let objref_pf_index = i + dist;
+                    if objref_pf_index < objects_to_scan.len() {
+                        objects_to_scan[objref_pf_index].prefetch_load();
+                    }
+                }
+
+                let object = objects_to_scan[i];
+
                 // For any object we need to scan, we count its liv bytes
                 #[cfg(feature = "count_live_bytes_in_gc")]
                 closure

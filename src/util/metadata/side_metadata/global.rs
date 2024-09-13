@@ -543,6 +543,18 @@ impl SideMetadataSpec {
         )
     }
 
+    /// Prefetch the metadata in preparation for a later load
+    pub fn prefetch_load(&self, data_addr: Address) {
+        let meta_addr = address_to_meta_address(self, data_addr);
+        meta_addr.prefetch_load();
+    }
+
+    /// Preftch the metadata in preparation for a later store
+    pub fn prefetch_store(&self, data_addr: Address) {
+        let meta_addr = address_to_meta_address(self, data_addr);
+        meta_addr.prefetch_store();
+    }
+
     /// Loads a value from the side metadata for the given address.
     /// This method has similar semantics to `store` in Rust atomics.
     pub fn load_atomic<T: MetadataValue>(&self, data_addr: Address, order: Ordering) -> T {

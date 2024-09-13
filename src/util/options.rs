@@ -95,6 +95,27 @@ impl FromStr for PerfEventOptions {
     }
 }
 
+/// MMTk option for prefetching (specifies both enablement status and distance)
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum PrefetchOption {
+    /// Prefetching of this type is disabled
+    Disabled,
+    /// Prefetching is enabled with the specified distance
+    Enabled(usize)
+}
+
+impl FromStr for PrefetchOption {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        match s.parse::<usize>() {
+            Ok(n) => Ok(Self::Enabled(n)),
+            // Any non-numerical value is interpreted as disabled
+            Err(_) => Ok(Self::Disabled),
+        }
+    }
+}
+
 /// The default min nursery size. This does not affect the actual space we create as nursery. It is
 /// only used in the GC trigger check.
 #[cfg(target_pointer_width = "64")]
@@ -864,7 +885,13 @@ options! {
     gc_trigger:             GCTriggerSelector    [env_var: true, command_line: true] [|v: &GCTriggerSelector| v.validate()] = GCTriggerSelector::FixedHeapSize((crate::util::memory::get_system_total_memory() as f64 * 0.5f64) as usize),
     /// Enable transparent hugepage support for MMTk spaces via madvise (only Linux is supported)
     /// This only affects the memory for MMTk spaces.
-    transparent_hugepages: bool                  [env_var: true, command_line: true]  [|v: &bool| !v || cfg!(target_os = "linux")] = false
+    transparent_hugepages: bool                  [env_var: true, command_line: true]  [|v: &bool| !v || cfg!(target_os = "linux")] = false,
+    /// Enable/disable edge prefetching. Any integer value means enabled with a given prefetch,
+    /// distance; any non-integer value means disabled; if the environment variable is not set,
+    /// prefetching is enabled with the default distance.
+    slot_prefetch:          PrefetchOption      [env_var: true, command_line: true]  [always_valid] = PrefetchOption::Enabled(32),
+    /// Enable/disable objectref prefetching. Works similarly to the above.
+    objref_prefetch:        PrefetchOption      [env_var: true, command_line: true]  [always_valid] = PrefetchOption::Enabled(16)
 }
 
 #[cfg(test)]

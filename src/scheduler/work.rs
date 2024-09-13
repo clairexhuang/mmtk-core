@@ -25,6 +25,10 @@ pub trait GCWork<VM: VMBinding>: 'static + Send {
     /// switching overhead is a problem.
     fn do_work(&mut self, worker: &mut GCWorker<VM>, mmtk: &'static MMTK<VM>);
 
+    // fn do_work_pf<const DIST: usize>(&mut self, worker: &mut GCWorker<VM>, mmtk: &'static MMTK<VM>) {
+    //     self.do_work(worker, mmtk)
+    // }
+
     /// Do work and collect statistics. This internally calls `do_work()`. In most cases,
     /// this should be called rather than `do_work()` so that MMTk can correctly collect
     /// statistics for the work packets.

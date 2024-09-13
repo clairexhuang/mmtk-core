@@ -128,6 +128,14 @@ impl Slot for SimpleSlot {
     fn store(&self, object: ObjectReference) {
         unsafe { (*self.slot_addr).store(object.to_raw_address(), atomic::Ordering::Relaxed) }
     }
+
+    fn prefetch_load(&self) {
+        self.as_address().prefetch_load();
+    }
+
+    fn prefetch_store(&self) {
+        self.as_address().prefetch_store();
+    }
 }
 
 /// For backword compatibility, we let `Address` implement `Slot` with the same semantics as
@@ -148,6 +156,14 @@ impl Slot for Address {
 
     fn store(&self, object: ObjectReference) {
         unsafe { Address::store(*self, object) }
+    }
+
+    fn prefetch_load(&self) {
+        Address::prefetch_load(*self);
+    }
+
+    fn prefetch_store(&self) {
+        Address::prefetch_store(*self);
     }
 }
 

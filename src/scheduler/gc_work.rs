@@ -856,9 +856,10 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
         let mut scan_later = vec![];
         {
             let mut closure = ObjectsClosure::<Self::E>::new(worker, self.get_bucket());
+            let prefetch_option = *mmtk.options.objref_prefetch;
             for i in 0..objects_to_scan.len() {
                 // Prefetch future object references
-                if let PrefetchOption::Enabled(dist) = *mmtk.options.objref_prefetch {
+                if let PrefetchOption::Enabled(dist) = prefetch_option {
                     let objref_pf_index = i + dist;
                     if objref_pf_index < objects_to_scan.len() {
                         objects_to_scan[objref_pf_index].prefetch_load();

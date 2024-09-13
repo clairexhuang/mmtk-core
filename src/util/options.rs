@@ -96,7 +96,7 @@ impl FromStr for PerfEventOptions {
 }
 
 /// MMTk option for prefetching (specifies both enablement status and distance)
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Copy)]
 pub enum PrefetchOption {
     /// Prefetching of this type is disabled
     Disabled,

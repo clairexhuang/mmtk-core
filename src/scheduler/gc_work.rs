@@ -677,7 +677,7 @@ impl<E: ProcessEdgesWork> GCWork<E::VM> for E {
     // }
     fn do_work(&mut self, worker: &mut GCWorker<E::VM>, _mmtk: &'static MMTK<E::VM>) {
         self.set_worker(worker);
-        self.process_slots;
+        self.process_slots();
         if !self.nodes.is_empty() {
             self.flush();
         }

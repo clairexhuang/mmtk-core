@@ -640,41 +640,51 @@ pub trait ProcessEdgesWork:
         }
     }
 
-    /// Process all the slots in the work packet.
-    fn process_slots(&mut self) {
-        probe!(mmtk, process_slots, self.slots.len(), self.is_roots());
-        for i in 0..self.slots.len() {
-            self.process_slot(self.slots[i])
+    /// Implementers can override this method to return the actual prefetch distance.
+    fn pfd(&self) -> Option<usize> {
+        let pf_option = *(self.mmtk).options.objref_prefetch;
+        if let PrefetchOption::Enabled(dist) = pf_option {
+            Some(dist)
+        }
+        else {
+            None
         }
     }
 
-    // fn process_slots_pf<const DIST: usize>(&mut self) {
-    //     probe!(mmtk, process_slots, self.slots.len(), self.is_roots());
-    //     for i in 0..self.slots.len() {
-    //         // Prefetch future edges
-    //         let edge_pf_index = i + DIST;
-    //         if edge_pf_index < self.slots.len() {
-    //             self.slots[edge_pf_index].prefetch_load();
-    //         }
+    fn process_slots(&mut self) {
+        probe!(mmtk, process_slots, self.slots.len(), self.is_roots());
+        if let Some(dist) = self.pfd() {
+            match dist {
+                0 => process_slots_prefetch::<true, 0>(self),
+                1 => process_slots_prefetch::<true, 1>(self),
+                2 => process_slots_prefetch::<true, 2>(self),
+                4 => process_slots_prefetch::<true, 4>(self),
+                8 => process_slots_prefetch::<true, 8>(self),
+                16 => process_slots_prefetch::<true, 16>(self),
+                32 => process_slots_prefetch::<true, 32>(self),
+                64 => process_slots_prefetch::<true, 64>(self),
+                _ => process_slots_prefetch::<true, 16>(self),
+            };
+        } else {
+            process_slots_prefetch::<false, 0>(self);
+        }
+    }
+}
 
-    //         self.process_slot(self.slots[i])
-    //     }
-    // }
+fn process_slots_prefetch<const PREFETCH: bool, const DIST: usize>(pew: &mut impl ProcessEdgesWork) {
+    for i in 0..pew.slots.len() {
+        if PREFETCH { // The compiler is smart enough to eliminate this if statement if the constant PREFETCH is false.
+            // Prefetch future edges
+            let edge_pf_index = i + DIST;
+            if edge_pf_index < pew.slots.len() {
+                pew.slots[edge_pf_index].prefetch_load();
+            }
+        }
+        pew.process_slot(pew.slots[i]);
+    }
 }
 
 impl<E: ProcessEdgesWork> GCWork<E::VM> for E {
-    // fn do_work_pf<const DIST: usize>(&mut self, worker: &mut GCWorker<E::VM>, _mmtk: &'static MMTK<E::VM>) {
-    //     self.set_worker(worker);
-    //     self.process_slots_pf::<DIST>();
-    //     if !self.nodes.is_empty() {
-    //         self.flush();
-    //     }
-    //     #[cfg(feature = "sanity")]
-    //     if self.roots && !_mmtk.is_in_sanity() {
-    //         self.cache_roots_for_sanity_gc();
-    //     }
-    //     trace!("ProcessEdgesWork End");
-    // }
     fn do_work(&mut self, worker: &mut GCWorker<E::VM>, _mmtk: &'static MMTK<E::VM>) {
         self.set_worker(worker);
         self.process_slots();
@@ -841,12 +851,23 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
     /// Return the work bucket for this work packet and its derived work packets.
     fn get_bucket(&self) -> WorkBucketStage;
 
+    /// Implementers can override this method to return the actual prefetch distance.
+    fn prefetch_distance(&self, mmtk: &'static MMTK<<Self::E as ProcessEdgesWork>::VM>) -> Option<usize> {
+        let pf_option = *mmtk.options.objref_prefetch;
+        if let PrefetchOption::Enabled(dist) = pf_option {
+            Some(dist)
+        }
+        else {
+            None
+        }
+    }
+
     /// The common code for ScanObjects and PlanScanObjects.
-    fn do_work_common(
+    fn do_work_common_prefetch<const PREFETCH: bool, const DIST: usize>(
         &self,
         buffer: &[ObjectReference],
         worker: &mut GCWorker<<Self::E as ProcessEdgesWork>::VM>,
-        mmtk: &'static MMTK<<Self::E as ProcessEdgesWork>::VM>,
+        _mmtk: &'static MMTK<<Self::E as ProcessEdgesWork>::VM>,
     ) {
         let tls = worker.tls;
 
@@ -856,11 +877,10 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
         let mut scan_later = vec![];
         {
             let mut closure = ObjectsClosure::<Self::E>::new(worker, self.get_bucket());
-            let prefetch_option = *mmtk.options.objref_prefetch;
             for i in 0..objects_to_scan.len() {
                 // Prefetch future object references
-                if let PrefetchOption::Enabled(dist) = prefetch_option {
-                    let objref_pf_index = i + dist;
+                if PREFETCH {
+                    let objref_pf_index = i + DIST;
                     if objref_pf_index < objects_to_scan.len() {
                         objects_to_scan[objref_pf_index].prefetch_load();
                     }
@@ -917,6 +937,32 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
             });
         }
     }
+
+    fn do_work_common(
+        &self,
+        buffer: &[ObjectReference],
+        worker: &mut GCWorker<<Self::E as ProcessEdgesWork>::VM>,
+        mmtk: &'static MMTK<<Self::E as ProcessEdgesWork>::VM>,
+    ){
+        if let Some(dist) = self.prefetch_distance(mmtk) {
+            match dist {
+                0 => self.do_work_common_prefetch::<true,0>(buffer,worker,mmtk),
+                1 => self.do_work_common_prefetch::<true,1>(buffer,worker,mmtk),
+                2 => self.do_work_common_prefetch::<true,2>(buffer,worker,mmtk),
+                4 => self.do_work_common_prefetch::<true,4>(buffer,worker,mmtk),
+                8 => self.do_work_common_prefetch::<true,8>(buffer,worker,mmtk),
+                16 => self.do_work_common_prefetch::<true,16>(buffer,worker,mmtk),
+                32 => self.do_work_common_prefetch::<true,32>(buffer,worker,mmtk),
+                64 => self.do_work_common_prefetch::<true,64>(buffer,worker,mmtk),
+                _ => self.do_work_common_prefetch::<true,16>(buffer,worker,mmtk),
+            }
+        }
+        else {
+            self.do_work_common_prefetch::<false,0>(buffer,worker,mmtk)
+        }
+        
+    }
+
 }
 
 /// Scan objects and enqueue the slots of the objects.  For objects that do not support

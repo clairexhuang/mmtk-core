@@ -842,6 +842,16 @@ pub trait ScanObjectsWork<VM: VMBinding>: GCWork<VM> + Sized {
                     trace!("Scan object (slot) {}", object);
                     // If an object supports slot-enqueuing, we enqueue its slots.
                     <VM as VMBinding>::VMScanning::scan_object(tls, object, &mut closure);
+                    let mut num_slots = 0;
+                    let mut non_empty_slots = 0;
+                    <VM as VMBinding>::VMScanning::scan_object(tls, object, &mut |slot: VM::VMSlot| {
+                        num_slots += 1;
+                        if slot.load().is_some() {
+                            non_empty_slots += 1;
+                        }
+                        closure.visit_slot(slot);
+                    });
+                    println!("Object {object} has {num_slots} slots, among which {non_empty_slots} are non-empty.");
                     self.post_scan_object(object);
                 } else {
                     // If an object does not support slot-enqueuing, we have to use

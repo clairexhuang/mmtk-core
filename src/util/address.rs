@@ -9,6 +9,11 @@ use std::sync::atomic::Ordering;
 
 use crate::mmtk::{MMAPPER, SFT_MAP};
 
+#[cfg(all(target_arch = "x86", target_feature = "sse"))]
+use std::arch::x86 as arch;
+#[cfg(all(target_arch = "x86_64", target_feature = "sse"))]
+use std::arch::x86_64 as arch;
+
 /// size in bytes
 pub type ByteSize = usize;
 /// offset in byte
@@ -257,6 +262,34 @@ impl Address {
     pub unsafe fn atomic_store<T: Atomic>(self, val: T::Type, order: Ordering) {
         let loc = &*(self.0 as *const T);
         loc.store(val, order)
+    }
+
+    /// Prefetches the location referenced by this address for a subsequent load
+    pub fn prefetch_load(self) {
+        // On x86, we use the relevant intrinsics
+        #[cfg(all(
+            any(target_arch = "x86", target_arch = "x86_64"),
+            target_feature = "sse"
+        ))]
+        unsafe {
+            arch::_mm_prefetch(self.to_ptr(), arch::_MM_HINT_NTA);
+        }
+        // Otherwise, this defaults to a no-op
+        // TODO: use std::intrinsics::prefetch_read_data when it comes out of nightly
+    }
+
+    /// Prefetches the location referenced by this address for a subsequent store
+    pub fn prefetch_store(self) {
+        // On x86, we use the relevant intrinsics
+        #[cfg(all(
+            any(target_arch = "x86", target_arch = "x86_64"),
+            target_feature = "sse"
+        ))]
+        unsafe {
+            arch::_mm_prefetch(self.to_ptr(), arch::_MM_HINT_ET0);
+        }
+        // Otherwise, this defaults to a no-op
+        // TODO: use std::intrinsics::prefetch_write_data when it comes out of nightly
     }
 
     /// atomic operation: compare and exchange usize

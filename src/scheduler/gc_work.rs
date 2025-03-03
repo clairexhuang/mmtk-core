@@ -10,6 +10,8 @@ use crate::*;
 use std::marker::PhantomData;
 use std::ops::{Deref, DerefMut};
 
+const PF_DIST: usize = 64;
+
 pub struct ScheduleCollection;
 
 impl<VM: VMBinding> GCWork<VM> for ScheduleCollection {
@@ -643,7 +645,12 @@ pub trait ProcessEdgesWork:
     fn process_slots(&mut self) {
         probe!(mmtk, process_slots, self.slots.len(), self.is_roots());
         for i in 0..self.slots.len() {
-            self.process_slot(self.slots[i])
+            // Prefetch future edges
+            let edge_pf_index = i + PF_DIST;
+            if edge_pf_index < self.slots.len() {
+                self.slots[edge_pf_index].prefetch_load();
+            }
+            self.process_slot(self.slots[i]);
         }
     }
 }
